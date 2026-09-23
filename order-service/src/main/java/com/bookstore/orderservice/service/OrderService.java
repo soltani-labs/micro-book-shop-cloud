@@ -19,31 +19,23 @@ import java.util.List;
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    private final ProductClient productClient;
-    private final CustomerClient customerClient;
+    private final ResilientClientService resilientClientService;
 
-    public OrderService(OrderRepository orderRepository, ProductClient productClient, CustomerClient customerClient) {
+    public OrderService(OrderRepository orderRepository, ResilientClientService resilientClientService) {
         this.orderRepository = orderRepository;
-        this.productClient = productClient;
-        this.customerClient = customerClient;
+        this.resilientClientService = resilientClientService;
     }
 
     public OrderResponse placeOrder(OrderRequest request) {
-        // verifier que le client existe avant tout
-        try {
-            customerClient.getCustomerById(request.getCustomerId());
-        } catch (FeignException.NotFound ex) {
-            throw new CustomerNotFoundException(request.getCustomerId());
-        }
+        resilientClientService.validateCustomerExists(request.getCustomerId());
 
-        // creer la commande et traiter chaque article
         Order order = new Order(request.getCustomerId());
         double total = 0.0;
 
         for (OrderItemRequest itemRequest : request.getItems()) {
-            ProductResponse product = productClient.getProductById(itemRequest.getProductId());
+            ProductResponse product = resilientClientService.getProduct(itemRequest.getProductId());
 
-            boolean inStock = productClient.checkStock(itemRequest.getProductId(), itemRequest.getQuantity());
+            boolean inStock = resilientClientService.checkStock(itemRequest.getProductId(), itemRequest.getQuantity());
             if (!inStock) {
                 throw new InsufficientStockException(itemRequest.getProductId());
             }
@@ -58,7 +50,7 @@ public class OrderService {
 
             total += product.getPrice() * itemRequest.getQuantity();
 
-            productClient.reduceStock(itemRequest.getProductId(), itemRequest.getQuantity());
+            resilientClientService.reduceStock(itemRequest.getProductId(), itemRequest.getQuantity());
         }
 
         order.setTotalAmount(total);
