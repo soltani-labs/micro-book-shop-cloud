@@ -1,13 +1,16 @@
 package com.bookstore.orderservice.service;
 
+import com.bookstore.orderservice.client.CustomerClient;
 import com.bookstore.orderservice.client.ProductClient;
 import com.bookstore.orderservice.dto.*;
 import com.bookstore.orderservice.entity.Order;
 import com.bookstore.orderservice.entity.OrderItem;
 import com.bookstore.orderservice.entity.OrderStatus;
+import com.bookstore.orderservice.exception.CustomerNotFoundException;
 import com.bookstore.orderservice.exception.InsufficientStockException;
 import com.bookstore.orderservice.exception.OrderNotFoundException;
 import com.bookstore.orderservice.repository.OrderRepository;
+import feign.FeignException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -17,13 +20,23 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final ProductClient productClient;
+    private final CustomerClient customerClient;
 
-    public OrderService(OrderRepository orderRepository, ProductClient productClient) {
+    public OrderService(OrderRepository orderRepository, ProductClient productClient, CustomerClient customerClient) {
         this.orderRepository = orderRepository;
         this.productClient = productClient;
+        this.customerClient = customerClient;
     }
 
     public OrderResponse placeOrder(OrderRequest request) {
+        // verifier que le client existe avant tout
+        try {
+            customerClient.getCustomerById(request.getCustomerId());
+        } catch (FeignException.NotFound ex) {
+            throw new CustomerNotFoundException(request.getCustomerId());
+        }
+
+        // creer la commande et traiter chaque article
         Order order = new Order(request.getCustomerId());
         double total = 0.0;
 
@@ -45,7 +58,6 @@ public class OrderService {
 
             total += product.getPrice() * itemRequest.getQuantity();
 
-            // reduire le stock dans le service products
             productClient.reduceStock(itemRequest.getProductId(), itemRequest.getQuantity());
         }
 
